@@ -42,6 +42,31 @@ function proxyUrl(url: string): string {
   return STREAM_PROXY_BASE + encodeURIComponent(url);
 }
 
+/**
+ * 平台直播 CDN 的直连在浏览器里经常被 CORS/防盗链/网络策略挂起（实测 B 站
+ * m3u8 直连 20s 无响应），而服务端代理可以带上平台 Referer 正常拉流。
+ * 这些 host 直接走站内代理，不再先等一次直连超时。
+ */
+function needsServerProxy(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.endsWith('bilivideo.com') ||
+      host.endsWith('bilivideo.cn') ||
+      host.endsWith('bilibili.com') ||
+      host.endsWith('douyucdn.cn') ||
+      host.endsWith('douyu.com') ||
+      host.endsWith('huyacdn.com') ||
+      host.endsWith('huya.com') ||
+      host.endsWith('douyin.com') ||
+      host.endsWith('byteimg.com') ||
+      host.endsWith('bytedance.com')
+    );
+  } catch {
+    return false;
+  }
+}
+
 interface LivePlayerProps {
   /** 上游直播流地址（直连优先，失败自动走代理） */
   url: string;
@@ -275,6 +300,9 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel, volumeBoo
     };
 
     const engine = engineOf(url);
+    /** 平台 CDN 强制走代理：直连在浏览器里常常挂起，服务端代理会补 Referer */
+    const forceProxy = needsServerProxy(url);
+    const mediaUrl = forceProxy ? proxyUrl(url) : url;
     // 上一台/下一台：注册到播放器控制条（普通态与全屏均可见），未传不显示
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const controls: any[] = [];
@@ -332,13 +360,13 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel, volumeBoo
       moreVideoAttr: { playsInline: true },
       customType: {
         m3u8: (video: HTMLVideoElement) => {
-          setupHls(video, url, 'direct');
+          setupHls(video, mediaUrl, forceProxy ? 'proxy' : 'direct');
         },
         flv: (video: HTMLVideoElement) => {
-          void setupFlv(video, url, true);
+          void setupFlv(video, mediaUrl, !forceProxy);
         },
         mp4: (video: HTMLVideoElement) => {
-          setupNative(video, url, true);
+          setupNative(video, mediaUrl, !forceProxy);
         },
       },
     });

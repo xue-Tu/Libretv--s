@@ -22,6 +22,9 @@ services:
       # - DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/vod"}]
       # 可选：预置直播源（M3U 订阅，JSON 数组），epg 为可选节目单地址
       # - DEFAULT_LIVE_SOURCES=[{"name":"示例直播源","url":"https://example.com/list.m3u","epg":"https://example.com/epg.xml.gz"}]
+      # 可选：平台直播外部转接（抖音/虎牙/斗鱼；B站可直连），{url} 会替换为直播间地址
+      # - PLATFORM_LIVE_RELAY=https://relay.example.com/resolve?url={url}
+      # - PLATFORM_LIVE_RELAY_TOKEN=your-token
       # 可选：预置数据源订阅（SourceList JSON 链接，一次下发点播源 + 直播源）
       # refreshDays 为该订阅的静默刷新周期初始值（1-365 天，缺省 1 天），可省略；用户在面板改过后以面板为准
       # - DEFAULT_SUBSCRIPTIONS=["https://example.com/sources.json", {"url":"https://example.com/list.json","name":"名称","refreshDays":10}]

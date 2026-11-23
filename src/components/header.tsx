@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ThemeToggle } from './theme';
 import { SourceManagerDrawer } from './source-manager';
 import { HistoryPanel } from './history-panel';
+import { FavoritesPanel } from './favorites-panel';
 import { requestShowDownloadManager } from './download-manager';
 import { Icon, type IconName } from './icon';
 import { SearchHistoryDropdown, useSearchHistory } from './search-history';
@@ -17,6 +18,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
   /** 移动端（<sm）折叠菜单：窄屏放不下 5 个导航项 + 3 个图标按钮 */
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -74,6 +76,8 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
                     searchHistory.resetActive();
                   }}
                   onFocus={searchHistory.onFocus}
+                  onCompositionStart={searchHistory.onCompositionStart}
+                  onCompositionEnd={searchHistory.onCompositionEnd}
                   onKeyDown={(e) => searchHistory.onKeyDown(e, pickHistory)}
                   role="combobox"
                   aria-expanded={searchHistory.visible}
@@ -88,8 +92,9 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
                 {searchHistory.visible && (
                   <SearchHistoryDropdown
                     id="header-search-history"
-                    matches={searchHistory.matches}
+                    items={searchHistory.items}
                     activeIndex={searchHistory.activeIndex}
+                    suggestLoading={searchHistory.suggestLoading}
                     onPick={pickHistory}
                     onRemove={searchHistory.remove}
                     onClearAll={searchHistory.clearAll}
@@ -111,6 +116,9 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
               关于
             </HeaderLink>
             <ThemeToggle />
+            <IconButton label="我的收藏" onClick={() => setFavoritesOpen(true)}>
+              <Icon name="bookmark" />
+            </IconButton>
             <IconButton label="观看历史" onClick={() => setHistoryOpen(true)}>
               <Icon name="clock" />
             </IconButton>
@@ -159,6 +167,15 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
                 关于
               </MenuRow>
               <MenuAction
+                icon="bookmark"
+                onClick={() => {
+                  closeMenu();
+                  setFavoritesOpen(true);
+                }}
+              >
+                我的收藏
+              </MenuAction>
+              <MenuAction
                 icon="clock"
                 onClick={() => {
                   closeMenu();
@@ -169,6 +186,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
               </MenuAction>
               <MenuAction
                 icon="download"
+                className="col-span-2"
                 onClick={() => {
                   closeMenu();
                   requestShowDownloadManager();
@@ -187,6 +205,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
 
       <SourceManagerDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <FavoritesPanel open={favoritesOpen} onClose={() => setFavoritesOpen(false)} />
     </>
   );
 }
@@ -263,17 +282,22 @@ function MenuRow({
 function MenuAction({
   icon,
   onClick,
+  className,
   children,
 }: {
   icon: IconName;
   onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-muted hover:bg-hover hover:text-content transition-colors text-left"
+      className={cn(
+        'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-muted hover:bg-hover hover:text-content transition-colors text-left',
+        className
+      )}
     >
       <Icon name={icon} className="w-4 h-4 shrink-0" />
       {children}

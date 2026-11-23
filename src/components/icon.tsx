@@ -16,6 +16,7 @@ export type IconName =
   | 'plus'
   | 'search'
   | 'clock'
+  | 'bookmark'
   | 'check'
   | 'arrowDown'
   | 'undo'
@@ -77,6 +78,14 @@ const PATHS: Record<IconName, ReactNode> = {
       strokeLinejoin="round"
       strokeWidth={2}
       d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+    />
+  ),
+  bookmark: (
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4V4.5Z"
     />
   ),
   check: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />,

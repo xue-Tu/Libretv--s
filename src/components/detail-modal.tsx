@@ -15,6 +15,7 @@ import { copyToClipboard } from '@/lib/clipboard';
 import { EmptyState, ErrorState, LoadingState } from './states';
 import { useFocusTrap } from './use-focus-trap';
 import { Icon } from './icon';
+import { FavoriteButton } from './favorite-button';
 
 /**
  * 详情弹窗：剧集列表 + 排序 + 复制链接。
@@ -92,6 +93,10 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
 
   const episodes = detail ? (reversed ? [...detail.episodes].reverse() : detail.episodes) : [];
   const info = detail?.videoInfo;
+  const favoriteSource = resolveSource(store, item.sourceKey, {
+    url: item.sourceUrl,
+    name: item.sourceName,
+  });
 
   const play = (index: number) => {
     if (!detail || !detail.episodes[index]) return;
@@ -146,15 +151,33 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
             <h2 className="text-lg font-semibold text-content break-words">{item.name}</h2>
             <span className="text-sm text-faint">{item.sourceName}</span>
           </div>
-          <button
-            className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover shrink-0"
-            onClick={onClose}
-            aria-label="关闭"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <FavoriteButton
+              item={{
+                name: item.name,
+                year: item.year,
+                pic: item.pic,
+                typeName: item.typeName,
+                remarks: item.remarks,
+                sourceKey: item.sourceKey,
+                sourceName: item.sourceName,
+                sourceUrl: item.sourceUrl,
+                detail: favoriteSource?.detail,
+                vodId: item.vodId,
+              }}
+              variant="plain"
+              size="md"
+            />
+            <button
+              className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover shrink-0"
+              onClick={onClose}
+              aria-label="关闭"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="p-5 pt-4 pb-[calc(1.25rem_+_env(safe-area-inset-bottom))] sm:pb-5 flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-thin">

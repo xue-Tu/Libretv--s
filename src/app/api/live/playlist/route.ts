@@ -4,12 +4,16 @@ import { checkLiveUrlAllowed } from '@/lib/ssrf';
 import { fetchUpstream } from '@/lib/fetch-utils';
 import { getLiveCache, setLiveCache } from '@/lib/live-cache';
 import { parseM3u } from '@/lib/m3u-parser';
+import { detectPlatformLive } from '@/lib/platform-live';
+import { resolvePlatformLive } from '@/lib/platform-live-resolver';
 import type { LivePlaylistResponse } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
+/** 平台直播的流地址带时效签名，缓存 60s 足够，避免过期地址继续下发 */
+const PLATFORM_CACHE_TTL_MS = 60 * 1000;
 
 function cacheKey(url: string): string {
   return `live:playlist:${url}`;
@@ -64,26 +68,37 @@ export async function GET(req: Request) {
   // 直播专用缓存：数千频道的播放列表 JSON 不与豆瓣等热点数据共池（通用缓存超限会整体 clear）
   let playlist: LivePlaylistResponse | undefined = force ? undefined : getLiveCache<LivePlaylistResponse>(cacheKey(url));
   if (!playlist) {
-    let text: string;
-    try {
-      // allowPrivate：与直播流代理同一把尺子，LIVE_ALLOW_PRIVATE=1 时自建内网 IPTV 订阅才能拉通。
-      // 此前漏传该参数，fetchUpstream 的逐跳校验会回落到点播侧 checkUpstreamAllowed，
-      // 内网订阅源在第一跳即被判为「目标地址不在允许范围内」，导致直播源无法添加/启用。
-      const res = await fetchUpstream(url, { timeoutMs: 15000, retries: 1, allowPrivate: true });
-      if (!res.ok) {
-        return jsonError(`订阅地址请求失败: ${res.status}`, 502);
+    const platform = detectPlatformLive(url);
+    if (platform) {
+      // 平台直播间地址：B站内置解析，抖音/虎牙/斗鱼走外部转接
+      try {
+        playlist = await resolvePlatformLive(url, platform);
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : '平台直播解析失败', 502);
       }
-      text = await res.text();
-    } catch (err) {
-      return jsonError(`订阅地址请求失败: ${err instanceof Error ? err.message : '未知错误'}`, 502);
-    }
+      setLiveCache(cacheKey(url), playlist, PLATFORM_CACHE_TTL_MS);
+    } else {
+      let text: string;
+      try {
+        // allowPrivate：与直播流代理同一把尺子，LIVE_ALLOW_PRIVATE=1 时自建内网 IPTV 订阅才能拉通。
+        // 此前漏传该参数，fetchUpstream 的逐跳校验会回落到点播侧 checkUpstreamAllowed，
+        // 内网订阅源在第一跳即被判为「目标地址不在允许范围内」，导致直播源无法添加/启用。
+        const res = await fetchUpstream(url, { timeoutMs: 15000, retries: 1, allowPrivate: true });
+        if (!res.ok) {
+          return jsonError(`订阅地址请求失败: ${res.status}`, 502);
+        }
+        text = await res.text();
+      } catch (err) {
+        return jsonError(`订阅地址请求失败: ${err instanceof Error ? err.message : '未知错误'}`, 502);
+      }
 
-    const channels = parseM3u(text, url);
-    const groups = [...new Set(channels.map((c) => c.group).filter((g): g is string => Boolean(g)))].sort(
-      (a, b) => a.localeCompare(b, 'zh')
-    );
-    playlist = { name: extractPlaylistName(text), channels, groups };
-    setLiveCache(cacheKey(url), playlist, CACHE_TTL_MS, text.length);
+      const channels = parseM3u(text, url);
+      const groups = [...new Set(channels.map((c) => c.group).filter((g): g is string => Boolean(g)))].sort(
+        (a, b) => a.localeCompare(b, 'zh')
+      );
+      playlist = { name: extractPlaylistName(text), channels, groups };
+      setLiveCache(cacheKey(url), playlist, CACHE_TTL_MS, text.length);
+    }
   }
 
   if (format === 'm3u') {

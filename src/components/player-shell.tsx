@@ -30,6 +30,12 @@ import {
   DESKTOP_CONTROL_HIDE_MS,
   TOUCH_CONTROL_HIDE_MS,
 } from '@/lib/control-hide';
+import {
+  chooseVodQualityLevel,
+  readVodQualityPreference,
+  writeVodQualityPreference,
+  type VodQualityPreference,
+} from '@/lib/vod-quality';
 
 /** 片段时间统一保留 1 位小数：与面板展示保持一致，避免浮点尾巴 */
 const round1 = (v: number) => Math.round(v * 10) / 10;
@@ -168,6 +174,88 @@ export function PlayerShell({
   /** 上报实测画质：多次上报取大值由调用方决定，这里只管把拿到的高度传出去 */
   const reportQuality = (height: number) => {
     if (height > 0) propsRef.current.onQuality?.(height);
+  };
+
+  /**
+   * 点播画质：默认锁定最高档，不再让 ABR 自动降档；设置菜单里可改「自动 / 最高 / 指定高度」。
+   * 只有 master playlist 有多档时才加菜单；单码率源的清晰度由片源决定。
+   */
+  const installQualitySetting = (hls: Hls): boolean => {
+    const art = artRef.current;
+    if (!art) return false;
+
+    const levels = hls.levels
+      .map((level, index) => ({ index, height: Number(level.height) || 0 }))
+      .filter((level) => level.height > 0);
+    if (levels.length <= 1) return false;
+
+    const pref = readVodQualityPreference();
+    const selected = chooseVodQualityLevel(levels, pref);
+    if (selected === -1) {
+      hls.currentLevel = -1;
+      hls.autoLevelCapping = -1;
+    } else if (selected !== undefined) {
+      // currentLevel 会关闭 ABR 自动切档；用户要求「优先画质」时不再自动降档
+      hls.currentLevel = selected;
+      hls.startLevel = selected;
+      hls.autoLevelCapping = selected;
+      const height = hls.levels[selected]?.height;
+      if (typeof height === 'number') reportQuality(height);
+    }
+
+    const heights = [...new Set(levels.map((l) => l.height))].sort((a, b) => b - a);
+    const highestHeight = heights[0];
+    const selectedHeight =
+      selected !== undefined && selected >= 0 ? hls.levels[selected]?.height : undefined;
+
+    const options = [
+      {
+        html: '自动',
+        value: 'auto',
+        default: pref === 'auto',
+      },
+      {
+        html: `最高画质 (${highestHeight}P)`,
+        value: 'highest',
+        default: pref === 'highest',
+      },
+      ...heights.map((height) => ({
+        html: `${height}P`,
+        value: String(height),
+        default: pref !== 'auto' && pref !== 'highest' && selectedHeight === height,
+      })),
+    ];
+
+    if (art.setting.find('quality')) art.setting.remove('quality');
+    art.setting.add({
+      name: 'quality',
+      html: '画质',
+      tooltip: '默认锁定最高画质；选择「自动」才会随网速切换',
+      selector: options,
+      onSelect: (item: { value?: unknown; html?: unknown }) => {
+        // ArtPlayer 的 selector 可能把 value 改写成选项下标，不能依赖它；
+        // 用我们自己的显示文案反推目标画质更稳。
+        const label = String(item.html ?? '');
+        const next: VodQualityPreference =
+          label === '自动' ? 'auto' : label.startsWith('最高画质') ? 'highest' : parseInt(label, 10);
+        if (next !== 'auto' && next !== 'highest' && (!Number.isFinite(next) || next <= 0)) return;
+        writeVodQualityPreference(next);
+
+        const index = chooseVodQualityLevel(levels, next);
+        if (index === -1) {
+          hls.currentLevel = -1;
+          hls.autoLevelCapping = -1;
+          return;
+        }
+        if (index === undefined) return;
+        hls.currentLevel = index;
+        hls.startLevel = index;
+        hls.autoLevelCapping = index;
+        const height = hls.levels[index]?.height;
+        if (typeof height === 'number') reportQuality(height);
+      },
+    });
+    return true;
   };
 
   // 跨集共享、每次换集重置的播放链路状态
@@ -415,6 +503,21 @@ export function PlayerShell({
         .map((level) => level.height)
         .filter((h): h is number => typeof h === 'number' && h > 0);
       if (heights.length > 0) reportQuality(Math.max(...heights));
+      // ArtPlayer 实例在 customType 回调里可能尚未完成构造（artRef 还未赋值），
+      // 延迟一帧再装画质菜单；仍未就绪则短暂重试。
+      let qualityAttempt = 0;
+      const tryInstallQuality = () => {
+        try {
+          if (installQualitySetting(hls)) return;
+        } catch {
+          return;
+        }
+        if (!artRef.current && qualityAttempt < 10) {
+          qualityAttempt += 1;
+          setTimeout(tryInstallQuality, 100);
+        }
+      };
+      setTimeout(tryInstallQuality, 0);
       // 进度恢复改由 restoreAndStart 处理：duration 未就绪时不消费标记，挂事件重试
       void restoreAndStart();
     });
@@ -880,15 +983,32 @@ export function PlayerShell({
 
     // 全屏时播放器覆盖整个视口，无法依赖 mouseleave 判断“移出播放器”。
     // 改为按鼠标活动计时：停止移动后快速收起控制栏，移动时立即显示。
+    // 指针停在底部控制栏/时间轴上时不启动隐藏计时——否则鼠标不动 800ms 后
+    // 仍会收起，拖动进度条或停留查看时间点时体验很差。
     let controlHideTimer: ReturnType<typeof setTimeout> | null = null;
-    const showControlsOnPointerMove = () => {
-      art.controls.show = true;
+    let pointerOverControls = false;
+    const isOverControls = (target: EventTarget | null) =>
+      target instanceof Element && target.closest('.art-bottom') !== null;
+    const scheduleControlHide = () => {
       if (controlHideTimer) clearTimeout(controlHideTimer);
       controlHideTimer = setTimeout(() => {
-        if (!art.setting.show) art.controls.show = false;
-      }, 800);
+        // 定时器到点时指针可能已经移回控制栏（或设置面板打开），再确认一次
+        if (pointerOverControls || art.setting.show) return;
+        art.controls.show = false;
+      }, DESKTOP_CONTROL_HIDE_MS);
+    };
+    const showControlsOnPointerMove = (e?: MouseEvent) => {
+      pointerOverControls = e ? isOverControls(e.target) : false;
+      art.controls.show = true;
+      if (controlHideTimer) {
+        clearTimeout(controlHideTimer);
+        controlHideTimer = null;
+      }
+      // 悬停在控制栏/时间轴上：保持常显，直到指针移回画面
+      if (!pointerOverControls) scheduleControlHide();
     };
     const hideControlsOnMouseLeave = () => {
+      pointerOverControls = false;
       if (controlHideTimer) clearTimeout(controlHideTimer);
       controlHideTimer = null;
       art.controls.show = false;

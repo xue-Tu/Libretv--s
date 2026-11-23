@@ -1,6 +1,6 @@
 'use client';
 
-import type { SearchResponse, SearchStreamEvent, SourceSearchOutcome, VideoDetail, DoubanResponse, BangumiCalendarResponse, AuthStatusResponse, SourceConfig, SearchResultItem, LivePlaylistResponse, LiveEpgResponse, SourceListPayload, QualityProbeItem, QualityProbeResult } from './types';
+import type { SearchResponse, SearchStreamEvent, SourceSearchOutcome, VideoDetail, DoubanResponse, BangumiCalendarResponse, AuthStatusResponse, SourceConfig, SearchResultItem, SearchSuggestResponse, LivePlaylistResponse, LiveEpgResponse, SourceListPayload, QualityProbeItem, QualityProbeResult } from './types';
 
 /**
  * 客户端 API 封装。401 时触发全局事件打开登录框，
@@ -139,6 +139,12 @@ export const api = {
       });
     }
     return searchStream(wd, sources, filterAdult, onSource, signal);
+  },
+
+  /** 搜索联想词（豆瓣 suggest）：用于输入框下拉提示，失败时返回空列表 */
+  suggest: (q: string, signal?: AbortSignal) => {
+    const sp = new URLSearchParams({ q });
+    return request<SearchSuggestResponse>(`/api/suggest?${sp.toString()}`, { signal });
   },
 
   detail: (id: string, source: SourceConfig, signal?: AbortSignal) => {

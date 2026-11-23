@@ -117,6 +117,8 @@ PASSWORD=your-password npm start   # 监听 8080
 | `COOKIE_SECURE` | 否 | 显式覆盖会话 cookie 的 `Secure` 标记（`true` / `false`）；默认按 `x-forwarded-proto` 自动推导。反向代理终结了 TLS 但没传这个头时，cookie 不会带 `Secure`（不影响登录，但少了这层保护），设 `true` 可强制 |
 | `60S_API_BASE` | 否 | 影视榜单推荐源（60s API）实例地址，默认 `https://60s.crystelf.top`；有限流，高频使用可[自部署](https://github.com/vikiboss/60s) |
 | `DEFAULT_LIVE_SOURCES` | 否 | 预置直播源（M3U 订阅），JSON 数组：`[{"name":"源名","url":"https://.../list.m3u","epg":"https://.../epg.xml.gz"}]`，`epg` 为可选的 XMLTV 节目单地址 |
+| `PLATFORM_LIVE_RELAY` | 否 | 平台直播外部转接服务 URL 模板（含 `{url}`），用于抖音/虎牙/斗鱼直播间地址；B站可直连。支持返回 JSON `{"url":"https://...m3u8"}`、纯文本流地址或 M3U 文本，详见下方「平台直播」 |
+| `PLATFORM_LIVE_RELAY_TOKEN` | 否 | 外部转接服务的 `Authorization: Bearer` token（可选） |
 | `DEFAULT_SUBSCRIPTIONS` | 否 | 预置数据源订阅（LibreTV-SourceList JSON 链接，也接受 TVBOX 配置与接口目录地址），JSON 数组：`["https://.../sources.json", {"url":"https://.../list.json","name":"名称","refreshDays":10}]`。首次访问自动导入点播源与直播源，之后按 `refreshDays`（1-365，缺省 1 天）静默刷新；用户删除后不再自动加回。`refreshDays` 只是初始值，用户在源管理面板改过之后以面板设置为准 |
 | `DEFAULT_RECOMMEND_SOURCE` | 否 | 首页推荐数据源的默认值（`douban` / `bangumi` / `hot-list`，出厂默认 `hot-list`）；仅对未在设置中主动选择过的用户生效，用户的选择始终优先 |
 | `LIVE_ALLOW_PRIVATE` | 否 | 设为 `1` 时允许直播流代理访问内网/保留地址（自建 IPTV 场景），默认关闭以维持 SSRF 防护 |
@@ -135,6 +137,33 @@ PASSWORD=your-password npm start   # 监听 8080
 2. **观看**：进入「直播」页，按分组标签筛选或搜索频道，点击即播；支持 HLS（m3u8）与 HTTP-FLV 两种直播流，直连失败自动走代理通道重试。
 3. **节目单**：频道带 `tvg-id` 且订阅配置了 EPG 地址时，展示当前/接下来节目与播放进度。
 4. **收藏与导出**：频道可收藏；订阅可一键导出为标准 M3U 文件，供 PotPlayer / VLC 等外部播放器使用。
+
+### 平台直播（B站 / 抖音 / 虎牙 / 斗鱼）
+
+直播源地址除了 M3U，也可以直接粘贴直播间地址：
+
+- **B站**：`https://live.bilibili.com/<房间号>` 可直接解析，无需额外服务（使用 B站公开 playurl 接口，接口变动时可能失效）。
+- **抖音 / 虎牙 / 斗鱼**：这些平台需要签名、Cookie 或防盗链处理，推荐部署一个外部转接服务，然后配置：
+
+```bash
+PLATFORM_LIVE_RELAY=https://relay.example.com/resolve?url={url}
+# 可选
+PLATFORM_LIVE_RELAY_TOKEN=your-token
+```
+
+`{url}` 会被替换为 `encodeURIComponent(直播间地址)`。转接服务只需返回以下任一格式：
+
+```json
+{ "url": "https://cdn.example.com/live.m3u8", "name": "房间名", "group": "平台直播" }
+```
+
+```json
+{ "streams": [{ "url": "https://cdn.example.com/live.flv", "name": "房间名" }] }
+```
+
+也可以直接返回一个 `http(s)` 流地址，或标准 `#EXTM3U` 文本。转接服务负责平台鉴权、Referer、Cookie 与签名；LibreTV 只做播放列表适配和播放代理。自建在局域网/本机的转接服务还需设置 `LIVE_ALLOW_PRIVATE=1`。
+
+> 平台接口和风控策略会变化，尤其是抖音；外部转接服务需要自行维护。请仅用于个人合法观看，遵守各平台服务条款。
 
 完整说明见 [直播 / IPTV 文档](https://libretv.is-an.org/wiki/Live-IPTV.html)。
 

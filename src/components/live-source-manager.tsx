@@ -8,6 +8,7 @@ import { formatRelativeTime, hostnameOf, validateSourceUrl, cn } from '@/lib/uti
 import { SearchInput, SectionTitle, TestBadge, useSourceTests } from './settings-shared';
 import { EmptyState } from './states';
 import { Icon } from './icon';
+import { detectPlatformLive } from '@/lib/platform-live';
 
 /**
  * 直播源管理（嵌入设置抽屉）：M3U 订阅的添加 / 探活 / 移除 / 导出，
@@ -144,7 +145,7 @@ export function LiveSourceManager() {
         <EmptyState
           icon="link"
           title="还没有添加任何直播源"
-          description="添加 M3U 地址后即可在「直播」页按分组浏览与播放频道；也可在「数据源订阅」中一次导入点播源与直播源；部署者还可通过 DEFAULT_LIVE_SOURCES 环境变量预置。"
+          description="添加 M3U 地址后即可在「直播」页按分组浏览与播放频道；也可以直接粘贴抖音/虎牙/斗鱼/B站直播间地址（B站可直连，其他平台需配置外部转接服务）。"
           action={
             <button className="btn-primary btn-sm" onClick={() => setAdding(true)}>
               添加第一个直播源
@@ -183,6 +184,7 @@ export function LiveSourceManager() {
               {rows.map((row) => {
                 const enabled = store.liveSelectedUrls.includes(row.url);
                 const fromSubscription = row.fromSubscriptions.length > 0;
+                const platform = detectPlatformLive(row.url);
                 return (
                   <li
                     key={row.url}
@@ -215,6 +217,14 @@ export function LiveSourceManager() {
                               title={`来自 ${row.fromSubscriptions.length} 个数据源订阅；删除单个订阅不影响此源，仅当不再被任何订阅引用时才会移除`}
                             >
                               订阅
+                            </span>
+                          )}
+                          {platform && (
+                            <span
+                              className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-300 align-middle"
+                              title="平台直播：B站内置解析，抖音/虎牙/斗鱼通过外部转接服务解析"
+                            >
+                              {platform.label}
                             </span>
                           )}
                         </div>
@@ -325,7 +335,7 @@ function LiveSourceForm({
     }
     const u = url.trim();
     if (!validateSourceUrl(u)) {
-      toast('订阅地址需以 http:// 或 https:// 开头', 'warning');
+      toast('直播源地址需以 http:// 或 https:// 开头', 'warning');
       return;
     }
     onSubmit({ url: u, name: name.trim() || undefined, epg: epg.trim() || undefined });
@@ -335,14 +345,19 @@ function LiveSourceForm({
     <div className="space-y-2 border border-line rounded-lg p-3 bg-chip mb-2">
       <input
         className="input w-full disabled:opacity-60"
-        aria-label="M3U 订阅地址"
-        placeholder="M3U 订阅地址，如 https://example.com/list.m3u"
+        aria-label="直播源地址（M3U 或平台直播间）"
+        placeholder="M3U 地址，或抖音/虎牙/斗鱼/B站直播间地址"
         value={url}
         maxLength={500}
         disabled={!!initial}
         title={initial ? '地址不可修改；如需更换请删除后重新添加' : undefined}
         onChange={(e) => setUrl(e.target.value)}
       />
+      <p className="text-[11px] leading-relaxed text-faint">
+        平台直播：B站可直接解析；抖音、虎牙、斗鱼需要部署者在环境中配置
+        <code className="mx-1 text-accent">PLATFORM_LIVE_RELAY</code>
+        外部转接服务。普通 M3U 订阅不受影响。
+      </p>
       <input
         className="input w-full"
         aria-label="直播源名称（可选）"

@@ -105,6 +105,23 @@ export interface SearchResponse {
   failures: { sourceKey: string; error: string; timedOut?: boolean }[];
 }
 
+/**
+ * 搜索联想词（/api/suggest）。
+ * `title` 用于下拉展示（保留「第 N 季」等季数信息），
+ * `query` 是点击后真正提交的关键词（已去掉末尾季数后缀）——
+ * 多数采集站只收录「现在就出发」这类基础名，直接搜「现在就出发 第五季」会得到空结果。
+ */
+export interface SearchSuggestItem {
+  title: string;
+  query: string;
+  year?: string;
+  type?: 'movie' | 'tv';
+}
+
+export interface SearchSuggestResponse {
+  items: SearchSuggestItem[];
+}
+
 /** /api/search?stream=1 的 NDJSON 事件：逐源推送 + 最终聚合 */
 export type SearchStreamEvent =
   | ({ type: 'source' } & SourceSearchOutcome)

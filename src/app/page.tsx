@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Header } from '@/components/header';
 import { RecommendSection } from '@/components/douban-section';
+import { MyLibrary } from '@/components/my-library';
 import { DetailModal } from '@/components/detail-modal';
 import { AggregatedCard, aggregateResults } from '@/components/video-card';
 import { useAppStore, resolveSource, isInDisabledSubscription, isSourceDisabled } from '@/lib/store';
@@ -130,6 +131,7 @@ function HomeContent() {
       toast('请先在设置中添加并勾选点播源', 'warning');
       return;
     }
+    searchHistory.close();
     router.push(`/?s=${encodeURIComponent(query)}`, { scroll: false });
     searchHistory.record(query);
   };
@@ -224,6 +226,8 @@ function HomeContent() {
                     searchHistory.resetActive();
                   }}
                   onFocus={searchHistory.onFocus}
+                  onCompositionStart={searchHistory.onCompositionStart}
+                  onCompositionEnd={searchHistory.onCompositionEnd}
                   onKeyDown={(e) => searchHistory.onKeyDown(e, pickHistory)}
                   role="combobox"
                   aria-label="搜索影片"
@@ -270,8 +274,9 @@ function HomeContent() {
             {searchHistory.visible && (
               <SearchHistoryDropdown
                 id="home-search-history"
-                matches={searchHistory.matches}
+                items={searchHistory.items}
                 activeIndex={searchHistory.activeIndex}
+                suggestLoading={searchHistory.suggestLoading}
                 onPick={pickHistory}
                 onRemove={searchHistory.remove}
                 onClearAll={searchHistory.clearAll}
@@ -363,6 +368,9 @@ function HomeContent() {
             )}
           </section>
         )}
+
+        {/* 继续观看 / 我的收藏：有数据才显示，放在推荐之前，免去重新搜索 */}
+        {!urlQuery && <MyLibrary />}
 
         {/* 首页推荐（有搜索时隐藏） */}
         {!urlQuery && (

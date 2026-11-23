@@ -21,6 +21,7 @@ import { LiveEpgPanel } from '@/components/live-epg-panel';
 import { Spinner } from '@/components/states';
 import { useAuth } from '@/components/auth';
 import { allLiveSources, useAppStore } from '@/lib/store';
+import { detectPlatformLive } from '@/lib/platform-live';
 import { cn } from '@/lib/utils';
 import { SmartImage } from '@/components/smart-image';
 
@@ -82,9 +83,33 @@ function LiveContent() {
     const list: LiveChannelItem[] = [];
     const seen = new Set<string>();
     let failed = 0;
+
+    /** 平台直播间解析失败时也占一行，保证用户添加的源不会从列表里消失 */
+    const addOfflinePlatform = (source: { url: string; name?: string }, reason: string) => {
+      const platform = detectPlatformLive(source.url);
+      if (!platform) return;
+      const url = `platform-offline:${source.url}`;
+      if (seen.has(url)) return;
+      seen.add(url);
+      list.push({
+        id: url,
+        name: source.name || platform.label,
+        url,
+        group: '平台直播',
+        sourceUrl: source.url,
+        offline: true,
+        offlineReason: reason,
+      });
+    };
+
     for (const { source, result } of playlistsQuery.data ?? []) {
       if (result.status !== 'fulfilled') {
         failed++;
+        addOfflinePlatform(source, result.reason instanceof Error ? result.reason.message : '解析失败');
+        continue;
+      }
+      if (result.value.channels.length === 0) {
+        addOfflinePlatform(source, '没有解析到可播放的频道');
         continue;
       }
       for (const c of result.value.channels) {

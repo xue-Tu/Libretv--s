@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { SourceConfig } from './types';
+import { favoriteKey, MAX_FAVORITES, type FavoriteEntry } from './favorites';
 // 仅类型引入：store.ts 运行时会引用本模块，反向只取类型不会形成运行时循环
 import type { LiveProbeEntry } from './store';
 import { PERSIST_KEY, flushPendingPersist } from './persist-storage';
@@ -83,6 +84,7 @@ export const db = new Dexie('libretv') as Dexie & {
   liveProbe: EntityTable<LiveProbeEntry & { url: string }, 'url'>;
   segmentMeta: EntityTable<SegmentMetaEntry, 'key'>;
   downloads: EntityTable<DownloadTaskEntry, 'id'>;
+  favorites: EntityTable<FavoriteEntry, 'id'>;
 };
 
 db.version(1).stores({
@@ -100,6 +102,11 @@ db.version(2).stores({
 db.version(3).stores({
   segmentMeta: 'key, episodeKey, lastAccess',
   downloads: 'id, createdAt',
+});
+
+// v4：点播收藏（按片名+年份去重，见 lib/favorites.ts）
+db.version(4).stores({
+  favorites: 'id, createdAt, updatedAt',
 });
 
 export const MAX_HISTORY = 100;
@@ -149,6 +156,47 @@ export async function removeHistory(sourceKey: string, vodId: string): Promise<v
 export async function clearAllHistory(): Promise<void> {
   // 一并清进度表：否则从历史重新打开时可能取到已清空的旧进度
   await Promise.all([db.history.clear(), db.progress.clear()]);
+}
+
+// —— 点播收藏（按片名+年份去重，而非按源） ——
+
+/**
+ * 切换收藏状态：未收藏则加入，已收藏则取消。返回切换后的状态。
+ * 收藏的是「这部剧」而不是某个源，同剧多源只保留一条。
+ */
+export async function toggleFavorite(
+  entry: Omit<FavoriteEntry, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<boolean> {
+  const name = entry.name.trim();
+  if (!name) throw new Error('收藏名称不能为空');
+  const id = favoriteKey(name, entry.year);
+  const existing = await db.favorites.get(id);
+  if (existing) {
+    await db.favorites.delete(id);
+    return false;
+  }
+  const now = Date.now();
+  await db.favorites.put({ ...entry, name, id, createdAt: now, updatedAt: now });
+  // 淘汰最早收藏，避免无限增长
+  const count = await db.favorites.count();
+  if (count > MAX_FAVORITES) {
+    const oldest = await db.favorites.orderBy('createdAt').limit(count - MAX_FAVORITES).toArray();
+    await db.favorites.bulkDelete(oldest.map((f) => f.id));
+  }
+  return true;
+}
+
+export async function removeFavorite(id: string): Promise<void> {
+  await db.favorites.delete(id);
+}
+
+export async function clearFavorites(): Promise<void> {
+  await db.favorites.clear();
+}
+
+/** 撤销「取消收藏」：按原条目（含原时间戳）写回 */
+export async function restoreFavorite(entry: FavoriteEntry): Promise<void> {
+  await db.favorites.put(entry);
 }
 
 export function progressKeyOf(sourceKey: string, vodId: string, episodeIndex: number): string {
@@ -218,10 +266,12 @@ export async function exportConfig(): Promise<string> {
   // 导出前 flush：把节流缓冲中的最新设置落盘，避免导出的是 800ms 前的旧快照
   flushPendingPersist();
   const history = await db.history.toArray();
+  const favorites = await db.favorites.toArray();
   const settings = localStorage.getItem(PERSIST_KEY);
 
   const data: Record<string, unknown> = {
     viewingHistory: JSON.stringify(history),
+    favorites: JSON.stringify(favorites),
   };
   if (settings) data[PERSIST_KEY] = settings;
 
@@ -268,6 +318,35 @@ export async function importConfig(content: string): Promise<void> {
         timestamp: typeof item.timestamp === 'number' ? item.timestamp : Date.now(),
       });
     }
+  }
+
+  if (typeof data['favorites'] === 'string') {
+    const legacy = JSON.parse(data['favorites']) as Record<string, unknown>[];
+    const now = Date.now();
+    const rows: FavoriteEntry[] = [];
+    for (const item of legacy.slice(0, MAX_FAVORITES)) {
+      const name = String(item.name || '').trim();
+      const sourceKey = String(item.sourceKey || '').trim();
+      const vodId = String(item.vodId || '').trim();
+      if (!name || !sourceKey || !vodId) continue;
+      const year = typeof item.year === 'string' && item.year.trim() ? item.year.trim() : undefined;
+      rows.push({
+        id: favoriteKey(name, year),
+        name,
+        year,
+        pic: typeof item.pic === 'string' ? item.pic : undefined,
+        typeName: typeof item.typeName === 'string' ? item.typeName : undefined,
+        remarks: typeof item.remarks === 'string' ? item.remarks : undefined,
+        sourceKey,
+        sourceName: typeof item.sourceName === 'string' ? item.sourceName : undefined,
+        sourceUrl: typeof item.sourceUrl === 'string' ? item.sourceUrl : undefined,
+        detail: typeof item.detail === 'string' ? item.detail : undefined,
+        vodId,
+        createdAt: typeof item.createdAt === 'number' ? item.createdAt : now,
+        updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : now,
+      });
+    }
+    if (rows.length > 0) await db.favorites.bulkPut(rows);
   }
 }
 

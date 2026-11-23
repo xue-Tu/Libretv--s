@@ -23,6 +23,37 @@ const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 /**
+ * 平台直播 CDN 通常校验 Referer/Origin；浏览器直连又常被 CORS 拦住，
+ * 所以平台流统一走本站代理时，这里按目标域名补上对应平台的请求头。
+ */
+function liveUpstreamHeaders(targetUrl: string): Record<string, string> {
+  const headers: Record<string, string> = { 'User-Agent': UA, Accept: '*/*' };
+  try {
+    const host = new URL(targetUrl).hostname.toLowerCase();
+    if (host.endsWith('bilivideo.com') || host.endsWith('bilivideo.cn') || host.endsWith('bilibili.com')) {
+      headers.Referer = 'https://live.bilibili.com/';
+      headers.Origin = 'https://live.bilibili.com';
+    } else if (host.endsWith('douyucdn.cn') || host.endsWith('douyu.com')) {
+      headers.Referer = 'https://www.douyu.com/';
+      headers.Origin = 'https://www.douyu.com';
+    } else if (host.endsWith('huyacdn.com') || host.endsWith('huya.com')) {
+      headers.Referer = 'https://www.huya.com/';
+      headers.Origin = 'https://www.huya.com';
+    } else if (
+      host.endsWith('douyin.com') ||
+      host.endsWith('byteimg.com') ||
+      host.endsWith('bytedance.com')
+    ) {
+      headers.Referer = 'https://live.douyin.com/';
+      headers.Origin = 'https://live.douyin.com';
+    }
+  } catch {
+    // 非法 URL 交给后续 SSRF 校验报错
+  }
+  return headers;
+}
+
+/**
  * 精确域名匹配：仅 `douban.com` 本身及其子域放行。
  * 不能用 endsWith('douban.com')——那样 `evil-douban.com` 也会命中，形成鉴权绕过。
  */
@@ -177,7 +208,7 @@ export async function handleLiveStreamRequest(req: Request, targetUrl: string): 
   const onClientAbort = () => controller.abort();
   req.signal.addEventListener('abort', onClientAbort, { once: true });
 
-  const headers: Record<string, string> = { 'User-Agent': UA, Accept: '*/*' };
+  const headers = liveUpstreamHeaders(targetUrl);
 
   let response: Response;
   let finalUrl: string;

@@ -47,8 +47,11 @@ function formatProbeProgress(p: { done: number; total: number; startedAt: number
 export interface LiveChannelItem extends LiveChannel {
   /** 来源订阅的 EPG 地址（用于节目单查询） */
   epg?: string;
-  /** 所属直播源地址（M3U 订阅 URL），写入最近观看以便订阅删除时清理 */
+  /** 所属直播源地址（M3U 订阅 URL / 平台直播间地址），写入最近观看以便订阅删除时清理 */
   sourceUrl?: string;
+  /** 平台直播解析失败/未开播的占位行：始终展示，但不可播放 */
+  offline?: boolean;
+  offlineReason?: string;
 }
 
 interface ChannelListProps {
@@ -299,7 +302,7 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
       if (!row) return;
       e.preventDefault();
       if (row.kind === 'group') toggleGroup(row.group);
-      else onSelect(row.channel);
+      else if (!row.channel.offline) onSelect(row.channel);
     }
   };
 
@@ -584,6 +587,11 @@ const ChannelRow = memo(function ChannelRow({
   useEffect(() => setLogoFailed(false), [logo]);
   // H.265/HEVC：国内 IPTV 常见，测活通过但 Chromium 内核通常无法软解
   const isHevc = Boolean(probe?.codec && /hvc1|hev1|hevc/i.test(probe.codec));
+  const offlineLabel = channel.offline
+    ? channel.offlineReason?.includes('未开播')
+      ? '未开播'
+      : '解析失败'
+    : undefined;
   // 源限速：分片可达但吞吐不足，绿点却播不了的主因
   const slow = isSlowSource(probe);
   // 状态点语义：绿=分片级验证且吞吐达标；琥珀=限速/弱验证（直链/清单级）或超时；红=不可达
@@ -615,12 +623,17 @@ const ChannelRow = memo(function ChannelRow({
       {/* 不用 role="button"：行内含收藏/删除等真实按钮，嵌套 button 角色语义非法；
           键盘操作由外层列表容器的 ↑↓ 导航提供 */}
       <div
+        data-url={channel.url}
+        title={channel.offline ? channel.offlineReason : undefined}
         className={cn(
-          'group flex items-center gap-2.5 px-2 py-2 rounded-md cursor-pointer transition-colors relative',
-          active ? 'bg-accent/10' : 'hover:bg-hover',
+          'group flex items-center gap-2.5 px-2 py-2 rounded-md transition-colors relative',
+          channel.offline ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+          !channel.offline && (active ? 'bg-accent/10' : 'hover:bg-hover'),
           cursor && 'ring-1 ring-accent/70'
         )}
-        onClick={() => onSelect(channel)}
+        onClick={() => {
+          if (!channel.offline) onSelect(channel);
+        }}
       >
         {/* 当前播放高亮竖条 */}
         <span
@@ -663,6 +676,14 @@ const ChannelRow = memo(function ChannelRow({
                 H.265
               </span>
             )}
+            {offlineLabel && (
+              <span
+                className="shrink-0 rounded-full bg-warning/15 px-1.5 text-[10px] font-medium text-warning"
+                title={channel.offlineReason || offlineLabel}
+              >
+                {offlineLabel}
+              </span>
+            )}
           </div>
           {channel.group && (
             <div className="text-[10px] text-faint truncate">{channel.group}</div>
@@ -687,31 +708,33 @@ const ChannelRow = memo(function ChannelRow({
             </svg>
           </button>
         )}
-        {/* 收藏星标（移动端常显，桌面 hover 出现） */}
-        <button
-          className={cn(
-            'shrink-0 p-1 rounded transition-transform active:scale-125',
-            isFav
-              ? 'text-warning'
-              : 'text-faint/60 opacity-60 lg:opacity-0 lg:group-hover:opacity-100 hover:text-warning'
-          )}
-          aria-label={isFav ? '取消收藏' : '收藏'}
-          title={isFav ? '取消收藏' : '收藏'}
-          onClick={(e) => {
-            e.stopPropagation();
-            // 点击时读取最新状态：行组件不订阅 store，保证探测期间的重渲染隔离
-            useAppStore.getState().toggleLiveFavorite(channel.url);
-          }}
-        >
-          <svg className="w-3.5 h-3.5" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-            />
-          </svg>
-        </button>
+        {/* 收藏星标（移动端常显，桌面 hover 出现）；未开播占位行不提供收藏 */}
+        {!channel.offline && (
+          <button
+            className={cn(
+              'shrink-0 p-1 rounded transition-transform active:scale-125',
+              isFav
+                ? 'text-warning'
+                : 'text-faint/60 opacity-60 lg:opacity-0 lg:group-hover:opacity-100 hover:text-warning'
+            )}
+            aria-label={isFav ? '取消收藏' : '收藏'}
+            title={isFav ? '取消收藏' : '收藏'}
+            onClick={(e) => {
+              e.stopPropagation();
+              // 点击时读取最新状态：行组件不订阅 store，保证探测期间的重渲染隔离
+              useAppStore.getState().toggleLiveFavorite(channel.url);
+            }}
+          >
+            <svg className="w-3.5 h-3.5" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+              />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

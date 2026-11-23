@@ -8,6 +8,7 @@ import { compactRemarks, formatRemarks, inferGroupRemarks } from '@/lib/remarks'
 import { cn } from '@/lib/utils';
 import { SmartImage } from './smart-image';
 import { QualityBadge } from './quality-badge';
+import { FavoriteButton } from './favorite-button';
 import { useQualityProbe } from './use-quality-probe';
 import { useInView } from './use-in-view';
 
@@ -121,6 +122,22 @@ export function AggregatedCard({
   const singleItem = multi ? undefined : group.items[0];
   const singleKey = singleItem ? qualityKey(singleItem.sourceKey, singleItem.vodId) : undefined;
 
+  // 收藏按「片名+年份」去重：多源卡片收藏的是这部剧，首选第一个源作为打开入口
+  const favoriteItem = group.items[0];
+  const favoriteSource = sources?.find((s) => s.key === favoriteItem.sourceKey);
+  const favorite = {
+    name: group.name,
+    year: group.year,
+    pic: group.pic,
+    typeName: group.typeName,
+    remarks: group.remarks,
+    sourceKey: favoriteItem.sourceKey,
+    sourceName: favoriteItem.sourceName,
+    sourceUrl: favoriteItem.sourceUrl,
+    detail: favoriteSource?.detail,
+    vodId: favoriteItem.vodId,
+  };
+
   // 展开面板按画质降序（同级保持原有源顺序）：探到一个更好的就往上走，
   // 用户不必自己横向比较三行灰字。没探到 / 未探到的排在最后。
   const heightOf = (item: SearchResultItem) => qualities[qualityKey(item.sourceKey, item.vodId)]?.height ?? 0;
@@ -177,6 +194,11 @@ export function AggregatedCard({
                 {group.items.length} 源
               </span>
             )}
+            <FavoriteButton
+              item={favorite}
+              size="sm"
+              className="absolute right-1.5 top-1.5 z-10"
+            />
           </div>
         ) : (
           <div className="relative flex-shrink-0 w-[105px] sm:w-[120px] aspect-[2/3] bg-chip flex items-center justify-center">
@@ -188,6 +210,11 @@ export function AggregatedCard({
                 {group.items.length} 源
               </span>
             )}
+            <FavoriteButton
+              item={favorite}
+              size="sm"
+              className="absolute right-1.5 top-1.5 z-10"
+            />
           </div>
         )}
 

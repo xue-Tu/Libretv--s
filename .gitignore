@@ -7,6 +7,10 @@ out/
 vitest-results.json
 *.log
 
+# 本地运行数据（Chrome 独立配置、日志/截图），不入库
+app-profile/
+logs/
+
 # AI 工具产物（本机会话/缓存数据，不入库）
 .mimosa/
 .zcode/

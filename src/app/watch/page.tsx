@@ -29,6 +29,7 @@ import type { PlayerSkipApi } from '@/components/player-shell';
 import { useToast } from '@/components/toast';
 import { enqueueDownload } from '@/components/download-manager';
 import { Icon } from '@/components/icon';
+import { FavoriteButton } from '@/components/favorite-button';
 import { useAuth } from '@/components/auth';
 import { resolveSource, useAppStore } from '@/lib/store';
 import { qualityKey } from '@/lib/quality';
@@ -262,6 +263,7 @@ function WatchContent() {
   }, [currentIndex, episodes.length, goEpisode]);
 
   const orderedEpisodes = reversed ? [...episodes].map((_, i) => episodes.length - 1 - i) : episodes.map((_, i) => i);
+  const watchInfo = detailQuery.data?.videoInfo;
 
   if (!verified) {
     return (
@@ -407,6 +409,24 @@ function WatchContent() {
                   <span className="ml-1 inline-block size-1.5 rounded-full bg-faint" aria-label="本剧跳过已关闭" />
                 )}
               </button>
+              {vodId && watchInfo && (
+                <FavoriteButton
+                  item={{
+                    name: watchInfo.title || videoTitle,
+                    year: watchInfo.year,
+                    pic: watchInfo.cover,
+                    typeName: watchInfo.typeName,
+                    remarks: watchInfo.remarks,
+                    sourceKey,
+                    sourceName: source.name,
+                    sourceUrl: source.url,
+                    detail: source.detail,
+                    vodId,
+                  }}
+                  variant="plain"
+                  showLabel
+                />
+              )}
               <label className="flex items-center gap-1.5 text-xs text-muted ml-auto cursor-pointer">
                 <input
                   type="checkbox"
